@@ -4,26 +4,49 @@ using System.Configuration;
 
 namespace ClearBank.DeveloperTest.Services
 {
+    public interface IAccountDataStoreFactory
+    {
+        IAccountDataStore Create();
+    }
+    public class AccountDataStoreFactory : IAccountDataStoreFactory
+    {
+        private readonly DataStoreOptions _options;
+
+        public AccountDataStoreFactory(DataStoreOptions options)
+        {
+            _options = options;
+        }
+
+        public IAccountDataStore Create()
+        {
+            return _options.DataStoreType switch
+            {
+                "Backup" => new BackupAccountDataStore(),
+                _ => new AccountDataStore()
+            };
+        }
+    }
+
+    public class DataStoreOptions
+    {
+        public string DataStoreType => 
+           ConfigurationManager.AppSettings["DataStoreType"];
+    }
+
     public class PaymentService : IPaymentService
     {
+        private readonly IAccountDataStoreFactory _dataStoreFactory;
+
+        public PaymentService(IAccountDataStoreFactory dataStoreFactory)
+        {
+            _dataStoreFactory = dataStoreFactory;
+        }
         public MakePaymentResult MakePayment(MakePaymentRequest request)
         {
-            var dataStoreType = ConfigurationManager.AppSettings["DataStoreType"];
+            var dataStore = _dataStoreFactory.Create();
+            var account = dataStore.GetAccount(request.DebtorAccountNumber);
 
-            Account account = null;
-
-            if (dataStoreType == "Backup")
-            {
-                var accountDataStore = new BackupAccountDataStore();
-                account = accountDataStore.GetAccount(request.DebtorAccountNumber);
-            }
-            else
-            {
-                var accountDataStore = new AccountDataStore();
-                account = accountDataStore.GetAccount(request.DebtorAccountNumber);
-            }
-
-            var result = new MakePaymentResult();
+            var result = new MakePaymentResult(){Success = true};
 
             switch (request.PaymentScheme)
             {
@@ -36,6 +59,7 @@ namespace ClearBank.DeveloperTest.Services
                     {
                         result.Success = false;
                     }
+
                     break;
 
                 case PaymentScheme.FasterPayments:
@@ -51,6 +75,7 @@ namespace ClearBank.DeveloperTest.Services
                     {
                         result.Success = false;
                     }
+
                     break;
 
                 case PaymentScheme.Chaps:
@@ -66,23 +91,14 @@ namespace ClearBank.DeveloperTest.Services
                     {
                         result.Success = false;
                     }
+
                     break;
             }
 
             if (result.Success)
             {
                 account.Balance -= request.Amount;
-
-                if (dataStoreType == "Backup")
-                {
-                    var accountDataStore = new BackupAccountDataStore();
-                    accountDataStore.UpdateAccount(account);
-                }
-                else
-                {
-                    var accountDataStore = new AccountDataStore();
-                    accountDataStore.UpdateAccount(account);
-                }
+                dataStore.UpdateAccount(account);
             }
 
             return result;
