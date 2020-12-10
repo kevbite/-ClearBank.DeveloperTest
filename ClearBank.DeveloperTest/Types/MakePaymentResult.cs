@@ -1,7 +1,14 @@
 ﻿namespace ClearBank.DeveloperTest.Types
 {
-    public class MakePaymentResult
+    public record MakePaymentResult(bool Success)
     {
-        public bool Success { get; set; }
+        public static MakePaymentResult CreateSuccess()
+        {
+            return new(true);
+        }
+        public static MakePaymentResult CreateFail()
+        {
+            return new(false);
+        }
     }
 }
