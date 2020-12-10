@@ -1,7 +1,5 @@
 using System;
-using System.Collections.Generic;
-using ClearBank.DeveloperTest.Data;
-using ClearBank.DeveloperTest.Services;
+using System.Linq;
 using ClearBank.DeveloperTest.Types;
 using FluentAssertions;
 using FluentAssertions.Execution;
@@ -9,71 +7,61 @@ using Xunit;
 
 namespace ClearBank.DeveloperTest.Tests.MakingPayments
 {
-    public class BacsPaymentTests : IAccountDataStoreFactory, IAccountDataStore
+    public class BacsPaymentTests
     {
-        private readonly PaymentService _service;
-        private readonly Dictionary<string, Account> _accounts = new();
-        private Account _updatedAccount;
+        private readonly PaymentsHarness _harness;
 
         public BacsPaymentTests()
         {
-            _service = new PaymentService(this);
+            _harness = new PaymentsHarness();
         }
 
         [Fact]
         public void ShouldReturnSuccessfulAndUpdateAccountBalance()
         {
             var balance = 150;
-            var preAccount = CreateAccount(balance);
+            var preAccount = _harness.CreateAccount(balance);
 
             var makePaymentRequest = CreateMakeBacsPaymentRequest()
                 with{
                 DebtorAccountNumber = preAccount.AccountNumber,
                 Amount = 50
                 };
-            var result = _service.MakePayment(makePaymentRequest);
+            var result = _harness.Service.MakePayment(makePaymentRequest);
 
             using var _ = new AssertionScope();
             result.Should().BeEquivalentTo(new
             {
                 Success = true
             });
-            _updatedAccount.Should().BeEquivalentTo(preAccount,
+            _harness.UpdatedAccounts.First().Should().BeEquivalentTo(preAccount,
                 opt => opt.Excluding(x => x.Balance));
-            _updatedAccount.Balance.Should().Be(100);
+            _harness.UpdatedAccounts.First().Balance.Should().Be(100);
         }
 
-        private Account CreateAccount(int balance = 100)
-        {
-            var account = new Account()
-            {
-                Balance = balance,
-                Status = AccountStatus.Live,
-                AccountNumber = Guid.NewGuid().ToString(),
-                AllowedPaymentSchemes = AllowedPaymentSchemes.All
-            };
 
-            _accounts.Add(account.AccountNumber, account);
-
-            return account;
-        }
 
         [Fact]
         public void ShouldReturnUnSuccessfulWhenMakingPaymentForAccountThatDoesNotExist()
         {
             var makePaymentRequest = CreateMakeBacsPaymentRequest();
 
-            _service.MakePayment(makePaymentRequest)
+            var makePaymentResult = _harness.Service.MakePayment(makePaymentRequest);
+            
+            using var _ = new AssertionScope();
+            makePaymentResult
                 .Should().BeEquivalentTo(new
                 {
                     Success = false
                 });
+            _harness.UpdatedAccounts.Should().BeEmpty();
+
         }
 
         [Fact]
         public void ShouldReturnUnSuccessfulWhenMakingPaymentForAccountsThatDontAllowBacsPaymentSchemes()
         {
-            var account = CreateAccount();
+            var account = _harness.CreateAccount();
             account.AllowedPaymentSchemes = AllowedPaymentSchemes.All ^ AllowedPaymentSchemes.Bacs;
 
             var makePaymentRequest = CreateMakeBacsPaymentRequest()
@@ -81,11 +69,16 @@ namespace ClearBank.DeveloperTest.Tests.MakingPayments
                     DebtorAccountNumber = account.AccountNumber
                 };
 
-            _service.MakePayment(makePaymentRequest)
+            var result = _harness.Service.MakePayment(makePaymentRequest);
+            
+            using var _ = new AssertionScope();
+            result
                 .Should().BeEquivalentTo(new
                 {
                     Success = false
                 });
+            _harness.UpdatedAccounts.Should().BeEmpty();
+
         }
 
         private static MakePaymentRequest CreateMakeBacsPaymentRequest()
@@ -100,22 +93,5 @@ namespace ClearBank.DeveloperTest.Tests.MakingPayments
             return makePaymentRequest;
         }
 
-        IAccountDataStore IAccountDataStoreFactory.Create()
-        {
-            return this;
-        }
-
-        Account IAccountDataStore.GetAccount(string accountNumber)
-        {
-            return _accounts.TryGetValue(accountNumber, out var account)
-                is true
-                ? account
-                : null;
-        }
-
-        void IAccountDataStore.UpdateAccount(Account account)
-        {
-            _updatedAccount = account;
-        }
     }
 }
